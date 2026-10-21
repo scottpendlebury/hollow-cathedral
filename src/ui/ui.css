@@ -1,0 +1,439 @@
+/* =====================================================================
+   The Hollow Cathedral — UI layer
+   Grimdark gothic: aged stone, candle light, dried blood, tarnished gold.
+   No web fonts, no external assets, no network requests.
+   ===================================================================== */
+
+:root {
+  --hc-bone: #d8d2c4;        --hc-bone-dim: #9a9488;   --hc-bone-faint: #6f6a61;
+  --hc-gold: #b08d4a;        --hc-gold-dim: #7a6234;
+  --hc-blood: #7a1f1f;        --hc-blood-bright: #a63030;
+  --hc-ink: #08070a;         --hc-stone: #1b1815;
+  --hc-font-display: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", Times, serif;
+  --hc-font-num: "DejaVu Sans Mono", "Liberation Mono", "Roboto Mono", "Courier New", ui-monospace, monospace;
+  --hc-edge: 1px solid rgba(176, 141, 74, 0.34);
+  --hc-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.72);
+  --hc-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+#ui-root {
+  position: fixed; inset: 0; pointer-events: none; z-index: 10;
+  color: var(--hc-bone); font-family: var(--hc-font-display);
+  -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent;
+}
+#ui-root .hc-hud, #ui-root .hc-menus { pointer-events: none; }
+#ui-root .hc-menus.is-open, #ui-root .hc-overlay.is-active { pointer-events: auto; }
+#ui-root button, #ui-root input, #ui-root select { font-family: inherit; color: inherit; }
+.is-hidden { display: none !important; }
+
+/* =====================================================================
+   HUD
+   ===================================================================== */
+
+.hc-hud { position: absolute; inset: 0; overflow: hidden; transition: opacity 220ms var(--hc-ease); }
+.hc-hud.is-hidden { opacity: 0; pointer-events: none; }
+
+.hc-hud__vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 34%, rgba(0,0,0,0.42) 72%, rgba(0,0,0,0.9) 100%);
+}
+
+/* --- damage vignette: red, opacity driven by the HUD ------------------ */
+
+.hc-damage {
+  position: absolute; inset: 0; opacity: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 50%, rgba(122,31,31,0) 22%, rgba(138,24,24,0.42) 62%, rgba(96,10,10,0.92) 100%);
+  transition: opacity 90ms linear;
+}
+.hc-hud--low .hc-hud__vignette {
+  animation: hc-breathe 2.4s ease-in-out infinite;
+  background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 30%, rgba(80,8,8,0.34) 70%, rgba(60,6,6,0.92) 100%);
+}
+@keyframes hc-breathe { 0%,100% { opacity: 0.75; } 50% { opacity: 1; } }
+
+/* --- crosshair --------------------------------------------------------- */
+
+.hc-crosshair {
+  position: absolute; left: 50%; top: 50%; width: 46px; height: 46px;
+  margin: -23px 0 0 -23px; pointer-events: none;
+}
+.hc-cross__tick {
+  position: absolute; display: block; background: var(--hc-bone); opacity: 0.72;
+  box-shadow: 0 0 4px rgba(0,0,0,0.9);
+  transition: transform 170ms var(--hc-ease), background-color 170ms linear, opacity 170ms linear;
+}
+.hc-cross__tick--t { left: 50%; top: 0; width: 2px; height: 9px; margin-left: -1px; }
+.hc-cross__tick--b { left: 50%; bottom: 0; width: 2px; height: 9px; margin-left: -1px; }
+.hc-cross__tick--l { top: 50%; left: 0; height: 2px; width: 9px; margin-top: -1px; }
+.hc-cross__tick--r { top: 50%; right: 0; height: 2px; width: 9px; margin-top: -1px; }
+.hc-cross--idle .hc-cross__tick { opacity: 0.55; }
+.hc-cross--hostile .hc-cross__tick { background: var(--hc-blood-bright); opacity: 1; }
+.hc-cross--reload .hc-cross__tick { opacity: 0.9; }
+.hc-cross--reload .hc-cross__tick--t { transform: translateY(-9px); }
+.hc-cross--reload .hc-cross__tick--b { transform: translateY(9px); }
+.hc-cross--reload .hc-cross__tick--l { transform: translateX(-9px); }
+.hc-cross--reload .hc-cross__tick--r { transform: translateX(9px); }
+.hc-cross--interact .hc-cross__tick { background: var(--hc-gold); opacity: 1; }
+.hc-cross--interact .hc-cross__tick--t { transform: translateY(-4px); }
+.hc-cross--interact .hc-cross__tick--b { transform: translateY(4px); }
+.hc-cross--interact .hc-cross__tick--l { transform: translateX(-4px); }
+.hc-cross--interact .hc-cross__tick--r { transform: translateX(4px); }
+
+.hc-hitmarker { position: absolute; inset: 0; opacity: 0; transition: opacity 70ms linear; }
+.hc-hitmarker.is-active { opacity: 1; }
+.hc-hitmarker::before, .hc-hitmarker::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 18px; height: 2px;
+  margin: -1px 0 0 -9px; background: var(--hc-bone); box-shadow: 0 0 5px rgba(0,0,0,0.95);
+}
+.hc-hitmarker::before { transform: rotate(45deg); }
+.hc-hitmarker::after { transform: rotate(-45deg); }
+.hc-hitmarker.is-crit::before, .hc-hitmarker.is-crit::after {
+  width: 26px; height: 3px; margin: -1.5px 0 0 -13px; background: var(--hc-gold);
+}
+
+/* --- objective --------------------------------------------------------- */
+
+.hc-objective {
+  position: absolute; top: calc(env(safe-area-inset-top, 0px) + 18px); left: 50%;
+  transform: translateX(-50%); max-width: min(88vw, 560px); overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; font-size: 11px; letter-spacing: 0.3em;
+  text-transform: uppercase; color: var(--hc-bone-dim); text-shadow: 0 1px 4px #000, 0 0 12px rgba(0,0,0,0.9);
+}
+
+/* --- interaction prompt ------------------------------------------------ */
+
+.hc-prompt {
+  position: absolute; left: 50%; top: calc(50% + 52px); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; padding: 7px 14px; max-width: min(86vw, 420px);
+  background: rgba(8,7,10,0.74); border: var(--hc-edge); box-shadow: inset 0 0 18px rgba(0,0,0,0.9);
+  font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--hc-bone);
+  text-shadow: 0 1px 3px #000;
+}
+.hc-prompt__key {
+  font-family: var(--hc-font-num); font-size: 12px; letter-spacing: 0.08em; color: var(--hc-ink);
+  background: var(--hc-gold); padding: 2px 7px; border: 1px solid #d8bd7a;
+}
+.hc-prompt__key:empty { display: none; }
+
+/* --- health ------------------------------------------------------------ */
+
+.hc-health {
+  position: absolute; left: calc(env(safe-area-inset-left, 0px) + 24px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); width: 232px;
+}
+.hc-health__head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 6px;
+}
+.hc-health__label {
+  font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase;
+  color: var(--hc-bone-dim); text-shadow: 0 1px 3px #000;
+}
+.hc-health__value {
+  font-family: var(--hc-font-num); font-variant-numeric: tabular-nums; font-size: 16px;
+  color: var(--hc-bone); text-shadow: 0 1px 3px #000;
+}
+.hc-health__bar {
+  height: 10px; background: rgba(8,7,10,0.85); border: var(--hc-edge);
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.95); overflow: hidden;
+}
+.hc-health__fill {
+  height: 100%; width: 100%; background: linear-gradient(90deg, #5e1414, #a8402a 62%, #c8ae7f);
+  box-shadow: 0 0 12px rgba(168,64,42,0.35); transition: width 200ms var(--hc-ease);
+}
+.hc-hud--low .hc-health__fill { background: linear-gradient(90deg, #3c0c0c, #7a1f1f); animation: hc-pulse 1.3s ease-in-out infinite; }
+@keyframes hc-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* --- weapon / ammo ----------------------------------------------------- */
+
+.hc-weapon {
+  position: absolute; right: calc(env(safe-area-inset-right, 0px) + 24px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); text-align: right;
+}
+.hc-weapon__name {
+  font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase;
+  color: var(--hc-gold); text-shadow: 0 1px 4px #000;
+}
+.hc-weapon__ammo-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.hc-weapon__ammo {
+  font-family: var(--hc-font-num); font-variant-numeric: tabular-nums; font-size: 30px; line-height: 1;
+  color: var(--hc-bone); text-shadow: 0 2px 6px #000;
+}
+.hc-weapon__reserve {
+  font-family: var(--hc-font-num); font-variant-numeric: tabular-nums; font-size: 16px;
+  color: var(--hc-bone-dim); text-shadow: 0 1px 4px #000;
+}
+.hc-weapon__kind {
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--hc-gold-dim);
+  border: 1px solid rgba(176,141,74,0.4); padding: 2px 5px; align-self: center;
+}
+.hc-hud--dry .hc-weapon__ammo { color: var(--hc-blood-bright); }
+
+/* =====================================================================
+   Death / victory overlays
+   ===================================================================== */
+
+.hc-overlays { position: absolute; inset: 0; pointer-events: none; }
+.hc-overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, rgba(30,4,4,0.72) 0%, rgba(6,5,8,0.94) 62%, rgba(3,3,4,0.98) 100%);
+  transition: opacity 320ms var(--hc-ease), visibility 320ms;
+}
+.hc-overlay.is-active { opacity: 1; visibility: visible; pointer-events: auto; }
+.hc-overlay__card {
+  width: min(92vw, 460px); padding: 30px 34px 26px; text-align: center;
+  background: linear-gradient(180deg, rgba(20,17,20,0.94), rgba(8,7,10,0.96)); border: var(--hc-edge);
+  box-shadow: var(--hc-shadow-panel), inset 0 0 70px rgba(0,0,0,0.9);
+  animation: hc-rise 340ms var(--hc-ease) both;
+}
+@keyframes hc-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+.hc-overlay__eyebrow { font-size: 9px; letter-spacing: 0.36em; text-transform: uppercase; color: var(--hc-bone-faint); }
+.hc-overlay__title {
+  margin: 10px 0 0; font-size: clamp(22px, 5vw, 32px); font-weight: 400; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--hc-bone); text-shadow: 0 0 26px rgba(122,31,31,0.55), 0 2px 0 #000;
+}
+.hc-overlay--victory .hc-overlay__title { text-shadow: 0 0 26px rgba(176,141,74,0.55), 0 2px 0 #000; }
+.hc-overlay__rule {
+  height: 1px; margin: 16px auto 14px; width: 70%;
+  background: linear-gradient(90deg, transparent, rgba(176,141,74,0.6), transparent);
+}
+.hc-overlay__stats { display: grid; gap: 5px; margin-bottom: 20px; }
+.hc-overlay__stat {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 4px 2px; border-bottom: 1px dotted rgba(176,141,74,0.2);
+}
+.hc-overlay__stat-label { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--hc-bone-dim); }
+.hc-overlay__stat-value {
+  font-family: var(--hc-font-num); font-variant-numeric: tabular-nums; font-size: 15px; color: var(--hc-bone);
+}
+.hc-overlay__actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+/* =====================================================================
+   Menus
+   ===================================================================== */
+
+.hc-menus {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  opacity: 0; visibility: hidden; transition: opacity 260ms var(--hc-ease), visibility 260ms;
+}
+.hc-menus.is-open { opacity: 1; visibility: visible; }
+.hc-menus.is-closed { opacity: 0; visibility: hidden; pointer-events: none !important; }
+.hc-menu-backdrop {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 30%, rgba(60,40,22,0.28) 0%, rgba(6,5,8,0) 60%),
+              linear-gradient(180deg, rgba(6,5,8,0.93), rgba(10,8,10,0.97));
+  -webkit-backdrop-filter: blur(6px) saturate(0.7); backdrop-filter: blur(6px) saturate(0.7);
+}
+.hc-menu-stage {
+  position: relative; z-index: 1; width: min(94vw, 720px);
+  max-height: calc(100vh - 28px); max-height: calc(100dvh - 28px);
+  overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding: 2px;
+}
+.hc-panel {
+  display: none; padding: 34px 38px 30px;
+  background: linear-gradient(180deg, rgba(18,16,19,0.95), rgba(8,7,10,0.97)); border: var(--hc-edge);
+  box-shadow: var(--hc-shadow-panel), inset 0 0 80px rgba(0,0,0,0.92);
+}
+.hc-panel.is-active { display: block; animation: hc-rise 300ms var(--hc-ease) both; }
+.hc-panel__eyebrow { font-size: 9px; letter-spacing: 0.38em; text-transform: uppercase; text-align: center; color: var(--hc-bone-faint); }
+.hc-title {
+  margin: 12px 0 0; text-align: center; font-size: clamp(28px, 6.4vw, 54px); font-weight: 400;
+  line-height: 1.08; letter-spacing: 0.14em; text-transform: uppercase; color: var(--hc-bone);
+  text-shadow: 0 0 30px rgba(122,31,31,0.5), 0 3px 0 #000;
+}
+.hc-panel__title {
+  margin: 10px 0 0; text-align: center; font-size: clamp(20px, 4.4vw, 30px); font-weight: 400;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--hc-bone);
+  text-shadow: 0 0 22px rgba(122,31,31,0.4), 0 2px 0 #000;
+}
+.hc-tagline {
+  margin: 14px auto 0; max-width: 46ch; text-align: center; font-size: 13px; line-height: 1.7;
+  letter-spacing: 0.06em; color: var(--hc-bone-dim);
+}
+.hc-tagline--small { font-size: 12px; }
+.hc-record {
+  margin: 20px 0 0; text-align: center; font-family: var(--hc-font-num); font-variant-numeric: tabular-nums;
+  font-size: 12px; letter-spacing: 0.22em; color: var(--hc-gold);
+}
+.hc-record.is-empty { color: var(--hc-bone-faint); }
+.hc-menu-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 24px; }
+.hc-controls { margin-top: 26px; padding-top: 18px; border-top: 1px solid rgba(176,141,74,0.2); }
+.hc-controls__heading {
+  font-size: 9px; letter-spacing: 0.34em; text-transform: uppercase; color: var(--hc-bone-faint);
+  text-align: center; margin-bottom: 12px;
+}
+.hc-controls__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 26px; }
+.hc-control {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0;
+  border-bottom: 1px dotted rgba(176,141,74,0.18);
+}
+.hc-control__key { font-family: var(--hc-font-num); font-size: 11px; letter-spacing: 0.1em; color: var(--hc-gold); }
+.hc-control__action { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--hc-bone-dim); text-align: right; }
+.hc-touch-hint { margin-top: 16px; text-align: center; font-size: 9px; letter-spacing: 0.2em; color: var(--hc-bone-faint); }
+
+/* --- buttons ------------------------------------------------------------ */
+
+.hc-btn {
+  appearance: none; -webkit-appearance: none; cursor: pointer; padding: 11px 20px; font-size: 11px;
+  letter-spacing: 0.24em; text-transform: uppercase; color: var(--hc-bone); background: rgba(22,19,20,0.9);
+  border: 1px solid rgba(176,141,74,0.5); box-shadow: inset 0 0 16px rgba(0,0,0,0.8);
+  transition: color 140ms linear, border-color 140ms linear, background-color 140ms linear,
+              box-shadow 140ms linear, transform 90ms var(--hc-ease);
+  touch-action: manipulation;
+}
+.hc-btn:hover {
+  color: #f3ecdb; border-color: var(--hc-gold); background: rgba(42,34,24,0.95);
+  box-shadow: inset 0 0 16px rgba(0,0,0,0.7), 0 0 20px rgba(176,141,74,0.2);
+}
+.hc-btn:active { transform: translateY(1px); background: rgba(64,22,22,0.95); border-color: var(--hc-blood-bright); }
+.hc-btn:focus-visible { outline: 2px solid var(--hc-gold); outline-offset: 2px; }
+.hc-btn--primary {
+  color: #f2e4bd; background: linear-gradient(180deg, rgba(66,49,24,0.92), rgba(28,22,14,0.95));
+  border-color: var(--hc-gold);
+}
+.hc-btn--primary:hover {
+  background: linear-gradient(180deg, rgba(92,68,32,0.95), rgba(38,29,17,0.95));
+  box-shadow: inset 0 0 18px rgba(0,0,0,0.6), 0 0 26px rgba(176,141,74,0.3);
+}
+.hc-btn--large { padding: 15px 34px; font-size: 13px; letter-spacing: 0.3em; }
+.hc-btn--small { padding: 8px 14px; font-size: 10px; }
+.hc-btn--danger { color: #c9a9a2; border-color: rgba(122,31,31,0.75); }
+.hc-btn--danger:hover {
+  color: #f0d8d4; border-color: var(--hc-blood-bright); background: rgba(64,20,20,0.9);
+  box-shadow: inset 0 0 16px rgba(0,0,0,0.7), 0 0 20px rgba(122,31,31,0.35);
+}
+
+/* =====================================================================
+   Settings panel
+   ===================================================================== */
+
+.hc-settings { display: grid; gap: 18px; margin-top: 22px; }
+
+/* two columns on roomy screens so the panel does not need scrolling */
+@media (min-width: 601px) {
+  .hc-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px 18px; }
+}
+
+@media (max-height: 700px) and (min-width: 601px) {
+  .hc-panel { padding: 22px 30px 20px; }
+  .hc-settings { margin-top: 14px; gap: 12px 18px; }
+  .hc-setting { padding: 6px 11px; }
+  .hc-slider { height: 18px; }
+}
+
+.hc-section__title {
+  margin: 0 0 8px; font-size: 10px; font-weight: 400; letter-spacing: 0.32em; text-transform: uppercase;
+  color: var(--hc-gold); border-bottom: 1px solid rgba(176,141,74,0.22); padding-bottom: 6px;
+}
+.hc-section__body { display: grid; gap: 8px; }
+.hc-setting {
+  display: grid; gap: 6px; padding: 9px 12px; background: rgba(8,7,10,0.6);
+  border: 1px solid rgba(176,141,74,0.16);
+}
+.hc-setting__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.hc-setting__label { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--hc-bone-dim); }
+.hc-setting__value {
+  font-family: var(--hc-font-num); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--hc-bone);
+}
+.hc-setting--check { grid-template-columns: 20px 1fr; align-items: center; gap: 12px; position: relative; cursor: pointer; }
+.hc-setting--action { grid-template-columns: 1fr auto; align-items: center; }
+.hc-check {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px;
+  margin: 0; opacity: 0; cursor: pointer;
+}
+.hc-check__box {
+  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(8,7,10,0.95); border: 1px solid rgba(176,141,74,0.6); font-size: 13px; line-height: 1; color: var(--hc-gold);
+}
+.hc-check:checked + .hc-check__box { border-color: var(--hc-gold); background: rgba(60,46,22,0.9); }
+.hc-check:checked + .hc-check__box::after { content: "\2713"; }
+.hc-check:focus-visible + .hc-check__box { outline: 2px solid var(--hc-gold); outline-offset: 2px; }
+
+.hc-slider {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 0;
+  background: transparent; cursor: pointer;
+}
+.hc-slider::-webkit-slider-runnable-track {
+  height: 4px; background: linear-gradient(90deg, rgba(176,141,74,0.55), rgba(176,141,74,0.14));
+  border: 1px solid rgba(176,141,74,0.3);
+}
+.hc-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 14px; height: 18px; margin-top: -8px;
+  background: linear-gradient(180deg, #cdb98d, #7a6335); border: 1px solid #201809;
+  box-shadow: 0 0 10px rgba(176,141,74,0.35);
+}
+.hc-slider::-moz-range-track {
+  height: 4px; background: linear-gradient(90deg, rgba(176,141,74,0.55), rgba(176,141,74,0.14));
+  border: 1px solid rgba(176,141,74,0.3);
+}
+.hc-slider::-moz-range-thumb {
+  width: 12px; height: 18px; border-radius: 0;
+  background: linear-gradient(180deg, #cdb98d, #7a6335); border: 1px solid #201809;
+}
+.hc-slider:focus-visible { outline: 2px solid var(--hc-gold); outline-offset: 3px; }
+
+.hc-select {
+  -webkit-appearance: none; appearance: none; width: 100%; padding: 9px 30px 9px 11px;
+  font-family: var(--hc-font-num); font-size: 12px; letter-spacing: 0.16em; color: var(--hc-bone);
+  background-color: rgba(8,7,10,0.95);
+  background-image: linear-gradient(45deg, transparent 50%, var(--hc-gold) 50%),
+                    linear-gradient(135deg, var(--hc-gold) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  border: 1px solid rgba(176,141,74,0.45); cursor: pointer;
+}
+.hc-select:focus-visible { outline: 2px solid var(--hc-gold); outline-offset: 2px; }
+.hc-settings__footer { display: flex; justify-content: center; margin-top: 20px; }
+
+/* =====================================================================
+   Narrow screens / phones
+   ===================================================================== */
+
+@media (max-width: 600px) {
+  .hc-hud__vignette { opacity: 0.85; }
+  .hc-objective { top: calc(env(safe-area-inset-top, 0px) + 10px); font-size: 10px; letter-spacing: 0.22em; }
+  .hc-prompt { top: calc(50% + 44px); font-size: 11px; padding: 6px 11px; gap: 8px; }
+  .hc-health {
+    left: calc(env(safe-area-inset-left, 0px) + 14px); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    width: 42vw; max-width: 190px;
+  }
+  .hc-health__value { font-size: 14px; }
+  .hc-health__label { font-size: 9px; letter-spacing: 0.2em; }
+  /* On touch devices the action cluster occupies the bottom-right, so the
+     ammo readout moves up above it instead of sitting underneath. */
+  .hc-weapon { right: calc(env(safe-area-inset-right, 0px) + 14px); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); }
+  body.tc-active .hc-weapon { bottom: calc(env(safe-area-inset-bottom, 0px) + 132px); }
+  .hc-weapon__ammo { font-size: 22px; }
+  .hc-weapon__reserve { font-size: 13px; }
+  .hc-weapon__name { font-size: 10px; letter-spacing: 0.18em; }
+  .hc-weapon__kind { font-size: 8px; padding: 1px 4px; }
+  .hc-menu-stage { width: 96vw; max-height: calc(100dvh - 16px); }
+  .hc-panel { padding: 22px 18px 20px; }
+  .hc-menu-actions { flex-direction: column; align-items: stretch; }
+  .hc-menu-actions .hc-btn { width: 100%; padding: 13px 12px; }
+  .hc-controls__list { grid-template-columns: minmax(0, 1fr); }
+  .hc-overlay__card { padding: 22px 20px 20px; }
+  .hc-overlay__actions { flex-direction: column; }
+  .hc-overlay__actions .hc-btn { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .hc-title { font-size: clamp(22px, 8vw, 34px); letter-spacing: 0.1em; }
+  .hc-tagline { font-size: 12px; }
+  .hc-setting { padding: 8px 10px; }
+  .hc-btn--large { padding: 14px 16px; font-size: 12px; letter-spacing: 0.22em; }
+  .hc-weapon__ammo { font-size: 20px; }
+}
+
+/* =====================================================================
+   Reduced motion
+   ===================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .hc-hud *, .hc-menus *, .hc-menus *::before, .hc-menus *::after,
+  .hc-overlay *, .hc-overlay *::before, .hc-overlay *::after {
+    animation-duration: 0.001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .hc-hud--low .hc-health__fill, .hc-hud--low .hc-hud__vignette { animation: none !important; }
+}

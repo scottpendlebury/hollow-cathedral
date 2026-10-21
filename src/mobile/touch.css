@@ -1,0 +1,366 @@
+/* =====================================================================
+   The Hollow Cathedral — mobile touch overlay
+   Grimdark gothic: aged iron plates, tarnished gold hairlines, dried
+   blood on the trigger. No web fonts, no external assets, no imports.
+   Everything is scoped under .tc-root so the game UI is untouched.
+   ===================================================================== */
+
+.tc-root {
+  /* palette */
+  --tc-bone: #d8d2c4;
+  --tc-bone-dim: #9a9488;
+  --tc-bone-faint: #6f6a61;
+  --tc-gold: #b08d4a;
+  --tc-gold-dim: #7a6234;
+  --tc-iron: #1a1815;
+  --tc-iron-light: #2a2620;
+  --tc-blood: #7a1f1f;
+  --tc-blood-bright: #a63030;
+  --tc-edge: rgba(176, 141, 74, 0.34);
+
+  --tc-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* metrics — the orientation queries only retune these */
+  --tc-btn-size: 48px;
+  --tc-fire-size: 70px;
+  --tc-stick-size: 112px;
+  --tc-knob-size: 44px;
+  --tc-gap: 6px;
+
+  position: fixed;
+  inset: 0;
+  pointer-events: none; /* the container is inert — only controls catch pointers */
+  z-index: 8;
+  touch-action: none;
+  color: var(--tc-bone);
+  font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Times New Roman', Times, serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ---- state helpers -------------------------------------------------- */
+.tc-root.is-hidden { display: none; }
+.tc-root.is-disabled .tc-btn,
+.tc-root.is-disabled .tc-hint { pointer-events: none; }
+.tc-root.is-disabled .tc-btn { opacity: 0.34; filter: grayscale(0.7); }
+
+/* Faint blood bloom while the trigger is held. */
+.tc-root::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 50%, rgba(122, 31, 31, 0) 38%, rgba(122, 31, 31, 0.26) 76%, rgba(84, 10, 10, 0.52) 100%);
+  opacity: 0;
+  transition: opacity 200ms linear;
+}
+.tc-root.is-firing::after { opacity: 1; transition-duration: 60ms; }
+
+/* =====================================================================
+   Virtual stick — the floating ring that appears under the thumb
+   ===================================================================== */
+.tc-stick {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 130ms linear;
+}
+.tc-stick.is-active { opacity: 1; }
+
+.tc-stick__base {
+  position: absolute;
+  left: calc(var(--tc-stick-size) / -2);
+  top: calc(var(--tc-stick-size) / -2);
+  width: var(--tc-stick-size);
+  height: var(--tc-stick-size);
+  border-radius: 50%;
+  border: 1px solid rgba(176, 141, 74, 0.62);
+  background: radial-gradient(circle at 50% 50%, rgba(26, 24, 21, 0.52) 0%, rgba(12, 11, 9, 0.34) 62%, rgba(0, 0, 0, 0) 76%);
+  box-shadow: 0 0 26px rgba(0, 0, 0, 0.55);
+}
+.tc-stick__base::after {
+  content: '';
+  position: absolute;
+  inset: 22px;
+  border-radius: 50%;
+  border: 1px dashed rgba(216, 210, 196, 0.16);
+}
+
+.tc-stick__knob {
+  position: absolute;
+  left: calc(var(--tc-knob-size) / -2);
+  top: calc(var(--tc-knob-size) / -2);
+  width: var(--tc-knob-size);
+  height: var(--tc-knob-size);
+  border-radius: 50%;
+  border: 1px solid rgba(216, 210, 196, 0.5);
+  background: radial-gradient(circle at 38% 30%, rgba(124, 113, 94, 0.9) 0%, rgba(38, 34, 28, 0.94) 58%, rgba(8, 8, 7, 0.96) 100%);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(216, 210, 196, 0.18);
+  will-change: transform;
+}
+
+/* The resting ring that shows where the stick lives. */
+.tc-stick-hint {
+  position: absolute;
+  left: calc(env(safe-area-inset-left, 0px) + 20px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  width: var(--tc-stick-size); height: var(--tc-stick-size);
+  pointer-events: none;
+  opacity: 0.38;
+  transition: opacity 220ms linear;
+}
+.tc-stick-hint__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(176, 141, 74, 0.45);
+  background: radial-gradient(circle at 50% 50%, rgba(26, 24, 21, 0.44) 0%, rgba(26, 24, 21, 0.16) 64%, rgba(0, 0, 0, 0) 74%);
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.55);
+}
+.tc-stick-hint__ring::before,
+.tc-stick-hint__ring::after {
+  content: '';
+  position: absolute;
+  background: rgba(176, 141, 74, 0.3);
+}
+.tc-stick-hint__ring::before { left: 50%; top: 14%; width: 1px; height: 72%; }
+.tc-stick-hint__ring::after { top: 50%; left: 14%; height: 1px; width: 72%; }
+.tc-stick-hint__label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -17px;
+  text-align: center;
+  font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--tc-bone-dim); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+/* =====================================================================
+   Action cluster — bottom-right, clear of the look area
+   ===================================================================== */
+.tc-cluster {
+  position: absolute;
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  display: grid;
+  grid-template-columns: var(--tc-btn-size) var(--tc-btn-size) var(--tc-fire-size);
+  grid-template-rows: repeat(3, var(--tc-btn-size));
+  grid-template-areas:
+    'sprint  jump    reload'
+    'alt     crouch  fire'
+    'use     swap    fire';
+  gap: var(--tc-gap);
+  pointer-events: none;
+  align-items: stretch; justify-items: stretch;
+}
+
+/* =====================================================================
+   Buttons — forged iron plates
+   ===================================================================== */
+.tc-btn {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0; /* no rounded corners — forged plate, not a pill */
+  color: var(--tc-bone);
+  font-family: inherit;
+  font-size: 9px; font-weight: 400; line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+
+  background-color: var(--tc-iron);
+  background-image: linear-gradient(180deg, rgba(66, 59, 48, 0.82) 0%, rgba(26, 24, 21, 0.88) 100%);
+  box-shadow: inset 0 0 0 1px rgba(176, 141, 74, 0.3), inset 0 1px 0 rgba(216, 210, 196, 0.1), inset 0 -8px 16px rgba(0, 0, 0, 0.45);
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  transition: background-color 130ms linear, box-shadow 130ms linear, color 130ms linear, transform 90ms var(--tc-ease);
+}
+
+/* Rivets in the corners of every plate. */
+.tc-btn::before,
+.tc-btn::after {
+  content: '';
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  pointer-events: none;
+  background: radial-gradient(circle at 35% 35%, rgba(216, 210, 196, 0.5), rgba(0, 0, 0, 0.75));
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
+}
+.tc-btn::before { top: 8px; left: 8px; }
+.tc-btn::after { bottom: 8px; right: 8px; }
+
+.tc-btn.is-pressed {
+  color: #f2ecdd;
+  background-image: linear-gradient(180deg, rgba(122, 31, 31, 0.92) 0%, rgba(48, 10, 10, 0.94) 100%);
+  box-shadow: inset 0 0 0 1px rgba(216, 210, 196, 0.5), inset 0 6px 14px rgba(0, 0, 0, 0.7), 0 0 16px rgba(122, 31, 31, 0.5);
+  transform: translateY(1px) scale(0.985);
+}
+
+/* ---- grid placement -------------------------------------------------- */
+.tc-btn--sprint { grid-area: sprint; }
+.tc-btn--jump { grid-area: jump; }
+.tc-btn--reload { grid-area: reload; }
+.tc-btn--alt { grid-area: alt; }
+.tc-btn--crouch { grid-area: crouch; }
+.tc-btn--interact { grid-area: use; }
+.tc-btn--swap { grid-area: swap; }
+.tc-btn--fire { grid-area: fire; }
+
+/* ---- the trigger ----------------------------------------------------- */
+.tc-btn--fire {
+  font-size: 11px; letter-spacing: 0.2em; color: #efe7d6;
+  background-image: radial-gradient(circle at 50% 38%, rgba(122, 31, 31, 0.55) 0%, rgba(122, 31, 31, 0) 64%), linear-gradient(180deg, rgba(74, 64, 49, 0.88) 0%, rgba(24, 21, 17, 0.92) 100%);
+  box-shadow: inset 0 0 0 1px rgba(176, 141, 74, 0.52), inset 0 0 24px rgba(122, 31, 31, 0.42), inset 0 -10px 20px rgba(0, 0, 0, 0.5);
+}
+.tc-btn--fire.is-pressed {
+  background-image: radial-gradient(circle at 50% 38%, rgba(166, 48, 48, 0.8) 0%, rgba(122, 31, 31, 0) 68%), linear-gradient(180deg, rgba(122, 31, 31, 0.95) 0%, rgba(48, 10, 10, 0.96) 100%);
+  box-shadow: inset 0 0 0 1px rgba(216, 210, 196, 0.62), inset 0 0 26px rgba(166, 48, 48, 0.6), 0 0 20px rgba(122, 31, 31, 0.6);
+  animation: tc-fire-pulse 180ms ease-out;
+}
+@keyframes tc-fire-pulse {
+  from { filter: drop-shadow(0 0 12px rgba(166, 48, 48, 0.75)); }
+  to { filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55)); }
+}
+
+/* ---- pause plate, top-left -------------------------------------------- */
+.tc-btn--pause {
+  position: absolute;
+  left: calc(env(safe-area-inset-left, 0px) + 14px);
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  width: 68px;
+  height: 36px;
+  font-size: 9px; letter-spacing: 0.24em; color: var(--tc-bone-dim);
+  background-image: linear-gradient(180deg, rgba(52, 46, 38, 0.8) 0%, rgba(18, 16, 14, 0.88) 100%);
+}
+.tc-btn--pause::before { top: 6px; left: 6px; }
+.tc-btn--pause::after { bottom: 6px; right: 6px; }
+.tc-btn--pause.is-pressed {
+  color: #f2ecdd;
+  background-image: linear-gradient(180deg, rgba(122, 31, 31, 0.9) 0%, rgba(48, 10, 10, 0.94) 100%);
+}
+
+/* =====================================================================
+   Onboarding panel
+   ===================================================================== */
+.tc-hint {
+  position: absolute;
+  left: calc(env(safe-area-inset-left, 0px) + 14px);
+  top: calc(env(safe-area-inset-top, 0px) + 58px);
+  box-sizing: border-box; /* keep the panel clear of the look area */
+  width: min(78vw, 300px);
+  pointer-events: auto;
+  padding: 13px 16px 14px;
+  background: linear-gradient(180deg, rgba(15, 14, 12, 0.93) 0%, rgba(8, 8, 7, 0.95) 100%);
+  border: 1px solid var(--tc-edge);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(216, 210, 196, 0.08);
+  color: var(--tc-bone);
+  font-size: 12px;
+  text-align: left;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  animation: tc-fade-in 220ms var(--tc-ease) both;
+}
+.tc-hint.is-hidden { display: none; }
+.tc-hint__title {
+  margin-bottom: 9px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(176, 141, 74, 0.22);
+  font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--tc-gold);
+}
+.tc-hint__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.tc-hint__row { display: flex; align-items: baseline; gap: 10px; }
+.tc-hint__key {
+  flex: 0 0 82px;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tc-gold);
+}
+.tc-hint__desc { flex: 1 1 auto; font-size: 11.5px; color: var(--tc-bone-dim); }
+.tc-hint__dismiss {
+  margin-top: 10px;
+  font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--tc-bone-faint); text-align: right;
+}
+@keyframes tc-fade-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* =====================================================================
+   Portrait — the game is played in landscape, but nothing may clip
+   ===================================================================== */
+@media (orientation: portrait) {
+  .tc-root {
+    --tc-btn-size: 42px;
+    --tc-fire-size: 60px;
+    --tc-stick-size: 92px;
+    --tc-knob-size: 36px;
+    --tc-gap: 5px;
+  }
+  .tc-btn { font-size: 8px; letter-spacing: 0.06em; }
+  .tc-btn--fire { font-size: 10px; letter-spacing: 0.14em; }
+  .tc-btn--pause {
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    width: 58px;
+    height: 32px;
+    font-size: 8px; letter-spacing: 0.18em;
+  }
+  .tc-stick-hint {
+    left: calc(env(safe-area-inset-left, 0px) + 12px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  }
+  .tc-hint {
+    top: calc(env(safe-area-inset-top, 0px) + 52px);
+    width: min(86vw, 300px);
+    padding: 11px 13px 12px;
+  }
+  .tc-hint__desc { font-size: 11px; }
+}
+
+/* Short landscape phones: keep the cluster inside the viewport. */
+@media (orientation: landscape) and (max-height: 430px) {
+  .tc-root {
+    --tc-btn-size: 42px;
+    --tc-fire-size: 60px;
+    --tc-stick-size: 96px;
+    --tc-knob-size: 38px;
+    --tc-gap: 5px;
+  }
+  .tc-btn { font-size: 8px; letter-spacing: 0.08em; }
+  .tc-cluster { bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); }
+  .tc-stick-hint { bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); }
+}
+
+/* =====================================================================
+   Reduced motion
+   ===================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .tc-root,
+  .tc-root *,
+  .tc-root *::before,
+  .tc-root *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+  }
+}
