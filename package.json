@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview --port 4173 --host 127.0.0.1",
     "size-check": "node scripts/size-check.mjs",
-    "test": "node scripts/smoke-test.mjs && node scripts/combat-test.mjs",
+    "test": "node scripts/smoke-test.mjs && node scripts/combat-test.mjs && node scripts/particle-test.mjs",
     "test:gameplay": "node scripts/gameplay-test.mjs"
   },
   "dependencies": {
