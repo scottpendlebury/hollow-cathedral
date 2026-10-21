@@ -161,7 +161,9 @@ globalThis.window = {
   webkitAudioContext: FakeAudioContext,
 };
 
-const mod = await import('/home/scott/hollow-cathedral/src/systems/AudioSystem.js');
+const mod = await import(
+  new URL('../src/systems/AudioSystem.js', import.meta.url).href
+);
 const { AudioSystem } = mod;
 
 console.log('--- export shape ---');
