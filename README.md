@@ -149,7 +149,7 @@ npm run test:gameplay # full browser playthrough (needs the preview server)
 npm run size-check    # resource budget report
 ```
 
-`npm test` runs three suites against a minimal DOM shim:
+`npm test` runs five suites against a minimal DOM shim:
 
 - **`scripts/smoke-test.mjs`** (52 checks) — collision and movement
   resolution, wall sliding, floor and ceiling detection, ray casts, line of
@@ -160,6 +160,11 @@ npm run size-check    # resource budget report
   machine, archetype balance, the archer's distance keeping, and projectiles.
 - **`scripts/particle-test.mjs`** (12 checks) — every emitter, the update
   loop, free-list recycling, the pool cap under a flood, and disposal.
+- **`scripts/audio-test.mjs`** (90 checks) — every one-shot and every public
+  method of the sound engine, against a stubbed AudioContext: graph wiring,
+  the procedural reverb impulse, the music scheduler, and cleanup.
+- **`scripts/ui-test.mjs`** (21 checks) — the settings and progress round-trips,
+  corrupt-JSON handling, disabled and throwing storage, and time formatting.
 
 `npm run test:gameplay` drives a real Chromium through the whole loop —
 start, walk, strafe, shoot, reload, switch weapons, kill an enemy, pause and
@@ -198,6 +203,7 @@ src/
     TouchControls.js  touch.css
 scripts/
   smoke-test.mjs  combat-test.mjs  particle-test.mjs
+  audio-test.mjs  ui-test.mjs
   gameplay-test.mjs  capture-screenshots.mjs  size-check.mjs
   vendor/jsdom-shim.mjs
 ```
