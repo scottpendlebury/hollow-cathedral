@@ -8,6 +8,11 @@ Three.js and Vite, deployed to GitHub Pages, playable on desktop and mobile.
 
 ![The Nave](docs/screenshots/01-nave.png)
 
+| | |
+|---|---|
+| ![Combat](docs/screenshots/05-combat.png) | ![The Ossuary](docs/screenshots/03-ossuary.png) |
+| Three kinds of undead | Bones, candles and a locked door |
+
 ---
 
 ## Play it

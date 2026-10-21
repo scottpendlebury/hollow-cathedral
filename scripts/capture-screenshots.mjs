@@ -148,6 +148,44 @@ await shot('06-cannon', { weapon: 1, pos: [0, 0, 20], yaw: 0, pitch: -0.02 });
 await shot('07-soulwick', { weapon: 2, pos: [0, 0, 20], yaw: 0, pitch: -0.02 });
 await shot('08-pause', { pause: true });
 
+// The end-of-run screens, driven through the game's own state transitions.
+await page.evaluate(() => {
+  const g = window.__hollowCathedral;
+  // Close the pause panel that the previous shot left open, otherwise the
+  // end-of-run screen renders behind it.
+  g.menus.showAll();
+  g.state = 'playing';
+  g.hud.setVisible(true);
+  g.runTime = 214 * 1000;
+  g.kills = 17;
+  g.secrets = 2;
+  g._onVictory();
+});
+await page.waitForFunction(
+  () => window.__hollowCathedral.state === 'victory',
+  { timeout: 10000, polling: 250 }
+);
+await new Promise((r) => setTimeout(r, 600));
+await page.screenshot({ path: join(OUT, '09-victory.png') });
+console.log('  wrote 09-victory');
+
+await page.evaluate(() => {
+  const g = window.__hollowCathedral;
+  g.state = 'playing';
+  g.hud.setVisible(true);
+  g.runTime = 96 * 1000;
+  g.kills = 6;
+  g.secrets = 0;
+  g._onPlayerDeath();
+});
+await page.waitForFunction(
+  () => window.__hollowCathedral.state === 'dead',
+  { timeout: 10000, polling: 250 }
+);
+await new Promise((r) => setTimeout(r, 600));
+await page.screenshot({ path: join(OUT, '10-death.png') });
+console.log('  wrote 10-death');
+
 // --- Mobile ---------------------------------------------------------------
 // A landscape phone, with the touch controls shown.
 const mobile = await browser.newPage();
