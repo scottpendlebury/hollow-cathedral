@@ -476,21 +476,21 @@ export function createMaterials() {
 
   const bone = new THREE.MeshStandardMaterial({
     map: boneMap,
-    color: 0x9a9584,
-    roughness: 0.92,
+    color: 0x7d7869,
+    roughness: 0.94,
     metalness: 0.0,
   });
 
   // Sickly, corpse-grey flesh: greenish where it is cold, ruddy where
   // the blood has not yet settled.
   const flesh = new THREE.MeshStandardMaterial({
-    color: 0x5c5a48,
-    roughness: 0.94,
+    color: 0x4b4a3c,
+    roughness: 0.96,
     metalness: 0.0,
   });
 
   const fleshDark = new THREE.MeshStandardMaterial({
-    color: 0x35332a,
+    color: 0x2a2922,
     roughness: 0.97,
     metalness: 0.0,
   });

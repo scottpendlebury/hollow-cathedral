@@ -399,10 +399,7 @@
   }
   .hc-health__value { font-size: 14px; }
   .hc-health__label { font-size: 9px; letter-spacing: 0.2em; }
-  /* On touch devices the action cluster occupies the bottom-right, so the
-     ammo readout moves up above it instead of sitting underneath. */
   .hc-weapon { right: calc(env(safe-area-inset-right, 0px) + 14px); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); }
-  body.tc-active .hc-weapon { bottom: calc(env(safe-area-inset-bottom, 0px) + 132px); }
   .hc-weapon__ammo { font-size: 22px; }
   .hc-weapon__reserve { font-size: 13px; }
   .hc-weapon__name { font-size: 10px; letter-spacing: 0.18em; }
@@ -424,6 +421,20 @@
   .hc-btn--large { padding: 14px 16px; font-size: 12px; letter-spacing: 0.22em; }
   .hc-weapon__ammo { font-size: 20px; }
 }
+
+/* =====================================================================
+   Touch layout
+   =====================================================================
+   When the on-screen controls are active, the action cluster owns the
+   bottom-right corner of the screen. The ammo readout moves up and left so
+   the two never overlap, at any viewport size. */
+
+body.tc-active .hc-weapon {
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 150px);
+  text-align: right;
+}
+body.tc-active .hc-health { bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); }
 
 /* =====================================================================
    Reduced motion

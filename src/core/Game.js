@@ -114,7 +114,7 @@ export class Game {
     this.renderer.setClearColor(0x08070a, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 0.92;
     this.renderer.shadowMap.enabled = false;
     this.renderer.info.autoReset = true;
   }
@@ -206,7 +206,8 @@ export class Game {
       enemies: this.enemies,
       viewCamera: this.player.viewCamera,
       onFire: (weapon, damage) => this._onWeaponFired(weapon, damage),
-      onHit: (point, normal, damage, weapon, didHit) => this._onWeaponHit(point, normal, damage, weapon, didHit),
+      onHit: (point, normal, damage, weapon, didHit, enemyHit) =>
+        this._onWeaponHit(point, normal, damage, weapon, didHit, enemyHit),
     });
 
     this.projectiles = new ProjectileSystem({

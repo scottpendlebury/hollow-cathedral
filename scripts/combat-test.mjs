@@ -147,6 +147,43 @@ console.log('\n=== Weapon damage model ===');
     `hp=${e.health}`
   );
 
+  // The Game layer's onHit callback must forward the enemyHit argument.
+  // If it does not, the trace resolves but no damage is ever applied, which
+  // is invisible in every other test. This asserts the whole chain.
+  {
+    const emX = new EnemyManager({ scene, world, materials, audio: null, particles: null });
+    const eX = emX.spawn('husk', new THREE.Vector3(0, 0, -10), [new THREE.Vector3(0, 0, -10)]);
+    const camX = new THREE.PerspectiveCamera(75, 1, 0.05, 200);
+    camX.position.set(0, 1.2, 0);
+    camX.rotation.set(0, 0, 0);
+    camX.updateMatrixWorld(true);
+    const playerX = { viewModel: new THREE.Group(), velocity: new THREE.Vector3() };
+
+    // Mirror the Game's own callback shape exactly.
+    let receivedEnemyHit = null;
+    const wsX = new WeaponSystem({
+      materials,
+      player: playerX,
+      camera: camX,
+      world,
+      audio: null,
+      particles: null,
+      enemies: emX,
+      onHit: (point, normal, damage, weapon, didHit, enemyHit) => {
+        receivedEnemyHit = enemyHit;
+        if (!didHit || !enemyHit) return;
+        enemyHit.enemy.damage(damage, camX.position);
+      },
+    });
+    wsX.weapons[0].magazine = 1;
+    wsX.weapons[0].cooldown = 0;
+    const hpX = eX.health;
+    wsX.tryFire();
+    check('the onHit callback receives the enemyHit argument', !!receivedEnemyHit, String(receivedEnemyHit));
+    check('damage reaches the enemy through the callback', eX.health < hpX, `hp=${eX.health} from ${hpX}`);
+    emX.clear();
+  }
+
   // A tougher target takes the full hit without dying.
   const em2b = new EnemyManager({ scene, world, materials, audio: null, particles: null });
   const knight = em2b.spawn('knight', new THREE.Vector3(0, 0, -10), [new THREE.Vector3(0, 0, -10)]);

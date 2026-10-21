@@ -58,6 +58,7 @@ if (!executablePath) {
 
 const results = [];
 let failures = 0;
+const mark = (label) => console.log(`  .. ${label}`);
 function check(name, ok, detail = '') {
   if (ok) results.push(`  ok    ${name}`);
   else {
@@ -75,12 +76,17 @@ const browser = await launch({
     '--disable-dev-shm-usage',
     '--use-gl=swiftshader',
     '--enable-unsafe-swiftshader',
-    '--window-size=1280,720',
+    '--window-size=960,540',
+    // Keep the browser lean: this test runs on small machines where the
+    // browser would otherwise be killed by the out-of-memory daemon.
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--renderer-process-limit=1',
   ],
 });
 
 const page = await browser.newPage();
-await page.setViewport({ width: 1280, height: 720 });
+await page.setViewport({ width: 960, height: 540 });
 
 const consoleErrors = [];
 page.on('console', (msg) => {
@@ -88,7 +94,9 @@ page.on('console', (msg) => {
 });
 page.on('pageerror', (err) => consoleErrors.push('pageerror: ' + err.message));
 
+mark('launching browser');
 await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+mark('page loaded');
 // rAF does not fire reliably in headless, so poll on a timer instead.
 await page.waitForFunction('window.__hollowCathedral !== undefined', {
   timeout: 60000,
@@ -112,7 +120,12 @@ async function step(frames, dt = 1 / 60) {
   await page.evaluate(
     (n, d) => {
       const g = window.__hollowCathedral;
+      // Software rendering makes each drawn frame very slow, and this test
+      // only needs the simulation. Rendering is restored for the perf probe.
+      const realRender = g.renderer.render.bind(g.renderer);
+      g.renderer.render = () => {};
       for (let i = 0; i < n; i++) g._update(d);
+      g.renderer.render = realRender;
     },
     frames,
     dt
@@ -175,6 +188,8 @@ console.log(`  target: ${BASE}\n`);
   check('the level builds enemies', s.enemyStates.length >= 8, `n=${s.enemyStates.length}`);
 }
 
+mark('game booted');
+
 // --- start ----------------------------------------------------------------
 await page.evaluate(() => {
   const b = [...document.querySelectorAll('button')].find((x) =>
@@ -190,6 +205,8 @@ await step(5);
   check('the player starts with a weapon loaded', s.ammo === 1 && s.reserve > 0, `ammo=${s.ammo}/${s.reserve}`);
   check('the player starts at full health', s.health === 100);
 }
+
+mark('game started');
 
 // --- movement -------------------------------------------------------------
 {
@@ -312,27 +329,6 @@ await step(5);
   });
   check('an enemy is available to fight', !!hit, JSON.stringify(hit));
   if (hit) {
-    const diag = await page.evaluate(() => {
-      const g = window.__hollowCathedral;
-      const e = g.enemies.enemies.find((x) => x.alive);
-      const origin = g.camera.getWorldPosition(new (g.camera.position.constructor)());
-      const dir = g.camera.getWorldDirection(new (g.camera.position.constructor)());
-      const wall = g.world.raycast(origin, dir, 90, []);
-      const enemy = g.enemies.raycast(origin, dir, wall ? wall.distance : 90);
-      return JSON.stringify({
-        origin: { x: origin.x, y: origin.y, z: origin.z },
-        dir: { x: dir.x, y: dir.y, z: dir.z },
-        enemyPos: { x: e.position.x, y: e.position.y, z: e.position.z },
-        enemyState: e.state,
-        enemyAlive: e.alive,
-        wallDist: wall ? wall.distance : null,
-        enemyHit: enemy ? { d: enemy.distance } : null,
-        weapon: g.weapons.current.id,
-        ammo: g.weapons.current.magazine,
-        yaw: g.player.yaw,
-      });
-    });
-    console.log('    diag:', diag);
     await drive({ fire: true });
     await step(3);
     await drive({ fire: false });
@@ -419,13 +415,21 @@ await step(5);
   check('restarting respawns the enemies', s.enemyStates.length >= 8);
 }
 
+mark('mechanics verified');
+
 // --- performance -----------------------------------------------------------
 {
   const perf = await page.evaluate(() => {
     const g = window.__hollowCathedral;
+    // The simulation cost only; software rasterisation is not representative
+    // of real GPU performance, so drawing is excluded from the timing.
+    const realRender = g.renderer.render.bind(g.renderer);
+    g.renderer.render = () => {};
     const t0 = performance.now();
     for (let i = 0; i < 120; i++) g._update(1 / 60);
     const ms = (performance.now() - t0) / 120;
+    g.renderer.render = realRender;
+    g.renderer.render(g.scene, g.camera);
     return {
       msPerFrame: ms,
       drawCalls: g.renderer.info.render.calls,
