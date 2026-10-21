@@ -136,10 +136,10 @@ export class Game {
   }
 
   _setupLighting() {
-    this.ambient = new THREE.AmbientLight(0x413a52, 1.5);
+    this.ambient = new THREE.AmbientLight(0x413a52, 1.75);
     this.scene.add(this.ambient);
 
-    this.hemi = new THREE.HemisphereLight(0x565070, 0x1d151c, 1.15);
+    this.hemi = new THREE.HemisphereLight(0x565070, 0x1d151c, 1.35);
     this.scene.add(this.hemi);
 
     // A dim cold key light standing in for moonlight through the windows.
@@ -149,13 +149,13 @@ export class Game {
 
     // A dim lantern that travels with the player. Without it, enemies
     // standing between torches are invisible, which makes the game unfair.
-    this.lantern = new THREE.PointLight(0xffd0a0, 5.5, 11, 1.6);
+    this.lantern = new THREE.PointLight(0xffd0a0, 6.5, 17, 1.55);
     this.scene.add(this.lantern);
 
     // A small pool of point lights that follow the nearest emitters.
     this.lightPool = [];
-    for (let i = 0; i < 8; i++) {
-      const l = new THREE.PointLight(0xffa04a, 0, 16, 1.7);
+    for (let i = 0; i < 10; i++) {
+      const l = new THREE.PointLight(0xffa04a, 0, 20, 1.6);
       l.castShadow = false;
       this.scene.add(l);
       this.lightPool.push(l);
@@ -375,6 +375,11 @@ export class Game {
     this.world.boxes.length = 0;
     this.world.grid.clear();
 
+    // Tear the old level down before building the new one. Leaving the
+    // previous cathedral in the scene would double the geometry on every
+    // restart and eventually choke the renderer.
+    this._disposeLevel();
+
     this.level = new Level(this.scene, this.world, this.materials);
     this.level.build();
 
@@ -405,6 +410,28 @@ export class Game {
 
   _notify() {
     if (this.onStateChange) this.onStateChange(this.state);
+  }
+
+  /**
+   * Removes the current level from the scene and releases its GPU resources.
+   *
+   * The level's geometry is merged into a handful of large buffers, so
+   * disposing them is what actually frees the memory. Materials are shared
+   * across levels and must not be disposed here.
+   */
+  _disposeLevel() {
+    if (!this.level) return;
+    if (this.level.root && this.level.root.parent) {
+      this.level.root.parent.remove(this.level.root);
+    }
+    this.level.root.traverse((obj) => {
+      if (obj.isMesh && obj.geometry) obj.geometry.dispose();
+    });
+    this.level.interactables.length = 0;
+    this.level.lightEmitters.length = 0;
+    this.level.enemySpawns.length = 0;
+    this.level.pickupSpawns.length = 0;
+    this.level = null;
   }
 
   // ---------------------------------------------------------------- combat
@@ -830,12 +857,40 @@ export class Game {
       }
     }
 
-    for (const e of this.level.lightEmitters) {
-      const f = e.flame;
-      if (!f) continue;
-      const s = 0.86 + Math.sin(this.time * 9 + e.position.x) * 0.12 + Math.sin(this.time * 23 + e.position.z) * 0.06;
-      f.scale.set(s, s * 1.25, s);
-      f.position.y = 0.56 + (e.flame.userData.baseY || 0) + Math.sin(this.time * 7) * 0.02;
+    // Flicker the flames. They are drawn as instanced meshes, so the
+    // animation writes instance matrices rather than moving individual
+    // objects.
+    this._flickerFlames();
+  }
+
+  /**
+   * Animates the level's flames by rewriting their instance matrices.
+   */
+  _flickerFlames() {
+    const level = this.level;
+    if (!level || !level.flameMeshes) return;
+    const dummy = this._flameDummy || (this._flameDummy = new THREE.Object3D());
+
+    for (const group of level.flameMeshes.values()) {
+      const mesh = group.mesh;
+      if (!mesh) continue;
+      let changed = false;
+      group.items.forEach((item, i) => {
+        const flicker =
+          0.86 +
+          Math.sin(this.time * 9 + item.x) * 0.12 +
+          Math.sin(this.time * 23 + item.z) * 0.06;
+        dummy.position.set(
+          item.x,
+          item.y + Math.sin(this.time * 7 + item.x) * 0.02,
+          item.z
+        );
+        dummy.scale.set(item.radius * flicker, item.radius * flicker * 1.25, item.radius * flicker);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        changed = true;
+      });
+      if (changed) mesh.instanceMatrix.needsUpdate = true;
     }
   }
 

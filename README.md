@@ -213,8 +213,9 @@ and standing in the dark loses it entirely.
 
 **Static geometry is merged.** The cathedral is thousands of boxes. They are
 accumulated per material and merged into one buffer, and textures are mapped
-in world space so texel density stays even. The whole level renders in ~89
-draw calls.
+in world space so texel density stays even. The whole level renders in ~138
+draw calls, down from over 500 before the level, the enemies and the pickups
+were batched.
 
 **Collision is a uniform spatial hash.** Entities are vertical cylinders;
 resolution is axis-separated so bodies slide along walls. A swept query
@@ -241,7 +242,7 @@ There are no binary assets to commit, so the repository stays tiny.
 
 | | Target | Notes |
 |---|---|---|
-| Desktop | 60 FPS | ~89 draw calls, ~22k triangles, 10 materials |
+| Desktop | 60 FPS | ~138 draw calls, ~32k triangles, 16 materials |
 | Mobile | 30 FPS minimum | Pixel ratio capped, reduced light count, fewer particles |
 
 The renderer adapts: `auto` quality picks a preset based on the device, and

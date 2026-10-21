@@ -12,242 +12,307 @@
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
 /**
+ * Shared geometry cache.
+ *
+ * Every husk used to allocate its own copy of the same cylinder, sphere and
+ * torus. With a dozen enemies on screen that was hundreds of redundant GPU
+ * buffers. The geometry is identical for every enemy of a type, so it is
+ * built once and reused.
+ */
+const GEO_CACHE = new Map();
+
+/**
+ * The single material every enemy body is drawn with.
+ *
+ * Body parts carry their colour in their vertices, so one husk or knight
+ * costs a handful of draw calls instead of a dozen.
+ */
+const ENEMY_MATERIAL = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.92,
+  metalness: 0.05,
+});
+
+/**
+ * Returns a cached geometry for the given key, building it on first use.
+ * @param {string} key
+ * @param {() => THREE.BufferGeometry} factory
+ */
+function geo(key, factory) {
+  let g = GEO_CACHE.get(key);
+  if (!g) {
+    g = factory();
+    GEO_CACHE.set(key, g);
+  }
+  return g;
+}
+
+/**
+ * Collects geometry and its transform so a body part can be assembled from
+ * many primitives and then merged into one mesh per material.
+ */
+class PartBuilder {
+  /**
+   * @param {THREE.Vector3|null} pivot the point the part rotates about.
+   *   Geometry is baked relative to it and the group is placed on it.
+   */
+  constructor(pivot) {
+    this.entries = [];
+    this.pivot = pivot ? pivot.clone() : null;
+  }
+
+  /**
+   * Adds a geometry with a position, rotation and scale.
+   *
+   * The material's colour is baked into the vertices, so the whole part can
+   * be drawn with one shared material.
+   */
+  add(geometry, material, position, rotation, scale) {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(
+        rotation ? rotation[0] : 0,
+        rotation ? rotation[1] : 0,
+        rotation ? rotation[2] : 0
+      )
+    );
+    const pos = new THREE.Vector3(position[0], position[1], position[2]);
+    if (this.pivot) pos.sub(this.pivot);
+    m.compose(pos, q, new THREE.Vector3(scale[0], scale[1], scale[2]));
+    const g = geometry.clone();
+    g.applyMatrix4(m);
+    this.entries.push({ geometry: g, color: material.color });
+    return this;
+  }
+
+  /**
+   * Produces one mesh per material, merging the geometry for each. The
+   * returned group's children can be animated independently.
+   */
+  build() {
+    const group = new THREE.Group();
+    if (this.pivot) group.position.copy(this.pivot);
+    const list = [];
+
+    for (const e of this.entries) {
+      // Merging requires a consistent attribute set.
+      let g = e.geometry.index ? e.geometry.toNonIndexed() : e.geometry;
+      for (const name of Object.keys(g.attributes)) {
+        if (name !== 'position' && name !== 'normal' && name !== 'uv' && name !== 'color') {
+          g.deleteAttribute(name);
+        }
+      }
+      if (!g.attributes.uv) {
+        g.setAttribute(
+          'uv',
+          new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2)
+        );
+      }
+      // Bake the material colour into the vertices.
+      const count = g.attributes.position.count;
+      const colors = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        colors[i * 3] = e.color.r;
+        colors[i * 3 + 1] = e.color.g;
+        colors[i * 3 + 2] = e.color.b;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      g.clearGroups();
+      list.push(g);
+    }
+
+    const merged = list.length === 1 ? list[0] : mergeGeometries(list, false);
+    if (!merged) {
+      // Fall back to individual meshes if the merge fails.
+      for (const g of list) {
+        const mesh = new THREE.Mesh(g, ENEMY_MATERIAL);
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        group.add(mesh);
+      }
+      return group;
+    }
+    if (list.length > 1) for (const g of list) g.dispose();
+
+    const mesh = new THREE.Mesh(merged, ENEMY_MATERIAL);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    group.add(mesh);
+    return group;
+  }
+}
+
+/**
  * Builds a procedural body for an archetype.
+ *
+ * Each animated part (torso, head, arms, legs) is assembled from several
+ * primitives and then merged into one mesh per material, so a full enemy
+ * costs a handful of draw calls rather than twenty.
  */
 function buildBody(type, materials) {
   const g = new THREE.Group();
   const parts = {};
 
+  const cyl = (r1, r2, h, seg) => geo(`${r1}_${r2}_${h}_${seg}`, () => new THREE.CylinderGeometry(r1, r2, h, seg));
+  const sph = (r, w, h) => geo(`s${r}_${w}_${h}`, () => new THREE.SphereGeometry(r, w, h));
+  const box = (x, y, z) => geo(`b${x}_${y}_${z}`, () => new THREE.BoxGeometry(x, y, z));
+  const tor = (r, t, rs, ts, arc) => geo(`t${r}_${t}_${rs}_${ts}_${arc}`, () => new THREE.TorusGeometry(r, t, rs, ts, arc));
+  const ico = (r, d) => geo(`i${r}_${d}`, () => new THREE.IcosahedronGeometry(r, d));
+
+  /**
+   * Builds one animated part and registers it under a name.
+   *
+   * @param {string|null} name
+   * @param {number[]} pivot the joint the part rotates about
+   * @param {(b: PartBuilder) => void} fill
+   */
+  const part = (name, pivot, fill) => {
+    const b = new PartBuilder(new THREE.Vector3(pivot[0], pivot[1], pivot[2]));
+    fill(b);
+    const node = b.build();
+    node.userData.baseY = pivot[1];
+    g.add(node);
+    if (name) parts[name] = node;
+    return node;
+  };
+
   if (type === 'husk') {
-    // A stooped, emaciated thing: narrow shoulders, a lolling head and a
-    // shambling forward lean.
-    const torso = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.26, 0.17, 0.74, 8),
-      materials.flesh
-    );
-    torso.position.set(0, 1.1, 0.05);
-    torso.rotation.x = 0.22;
-    g.add(torso);
-    parts.torso = torso;
+    // --- torso: a stooped, emaciated body with exposed ribs ------------
+    part('torso', [0, 1.1, 0.05], (b) => {
+      b.add(cyl(0.26, 0.17, 0.74, 8), materials.flesh, [0, 1.1, 0.05], [0.22, 0, 0], [1, 1, 1]);
+      b.add(sph(0.26, 9, 7), materials.fleshDark, [0, 1.45, 0.02], null, [1.5, 0.62, 0.85]);
+      // Ribs, the clearest read on what this thing used to be.
+      for (let i = 0; i < 4; i++) {
+        b.add(
+          tor(0.21 - i * 0.012, 0.024, 4, 10, Math.PI),
+          materials.bone,
+          [0, 1.32 - i * 0.11, 0.07],
+          [Math.PI / 2 - 0.25, 0, 0],
+          [1, 1, 1]
+        );
+      }
+      // A spine of vertebrae.
+      for (let i = 0; i < 4; i++) {
+        b.add(sph(0.038, 6, 5), materials.bone, [0, 1.34 - i * 0.11, -0.14], null, [1, 1, 1]);
+      }
+      // A tattered shroud.
+      b.add(cyl(0.24, 0.3, 0.62, 8), materials.cloth, [0, 0.94, 0.02], null, [1, 1, 1]);
+    });
 
-    // A hunched shoulder yoke.
-    const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.26, 9, 7), materials.fleshDark);
-    shoulders.scale.set(1.5, 0.62, 0.85);
-    shoulders.position.set(0, 1.45, 0.02);
-    g.add(shoulders);
+    // --- head: lolling forward and to one side --------------------------
+    part('head', [0.05, 1.62, 0.16], (b) => {
+      b.add(sph(0.16, 10, 8), materials.flesh, [0.05, 1.62, 0.16], [0.5, 0.2, 0.28], [0.82, 1.15, 0.92]);
+      b.add(sph(0.1, 7, 6), materials.fleshDark, [0.05, 1.5, 0.24], null, [0.9, 0.7, 1.1]);
+    });
 
-    // The head hangs forward and to one side.
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), materials.flesh);
-    head.scale.set(0.82, 1.15, 0.92);
-    head.position.set(0.05, 1.62, 0.16);
-    head.rotation.set(0.5, 0.2, 0.28);
-    g.add(head);
-    parts.head = head;
-
-    // A jaw that hangs open.
-    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.1, 7, 6), materials.fleshDark);
-    jaw.scale.set(0.9, 0.7, 1.1);
-    jaw.position.set(0.05, 1.5, 0.24);
-    g.add(jaw);
-
-    for (const s of [-1, 1]) {
-      // Long, thin arms that reach forward.
-      const arm = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.065, 0.042, 0.72, 6),
-        materials.flesh
-      );
-      arm.position.set(s * 0.3, 1.16, 0.18);
-      arm.rotation.x = -1.15;
-      g.add(arm);
-      parts[s < 0 ? 'armL' : 'armR'] = arm;
-
-      // Splayed hands.
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.075, 6, 5), materials.fleshDark);
-      hand.scale.set(0.8, 1.3, 0.6);
-      hand.position.set(s * 0.32, 0.88, 0.44);
-      hand.rotation.x = -0.6;
-      g.add(hand);
-
-      const leg = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.095, 0.07, 0.86, 6),
-        materials.flesh
-      );
-      leg.position.set(s * 0.14, 0.43, 0);
-      g.add(leg);
-      parts[s < 0 ? 'legL' : 'legR'] = leg;
+    // --- arms: long, thin, reaching forward -----------------------------
+    for (const side of [-1, 1]) {
+      const key = side < 0 ? 'armL' : 'armR';
+      part(key, [side * 0.3, 1.16, 0.18], (b) => {
+        b.add(cyl(0.065, 0.042, 0.72, 6), materials.flesh, [side * 0.3, 1.16, 0.18], [-1.15, 0, 0], [1, 1, 1]);
+        b.add(sph(0.075, 6, 5), materials.fleshDark, [side * 0.32, 0.88, 0.44], [-0.6, 0, 0], [0.8, 1.3, 0.6]);
+      });
     }
 
-    // Exposed ribs, the clearest read on what this thing used to be.
-    for (let i = 0; i < 4; i++) {
-      const rib = new THREE.Mesh(
-        new THREE.TorusGeometry(0.21 - i * 0.012, 0.024, 4, 10, Math.PI),
-        materials.bone
-      );
-      rib.position.set(0, 1.32 - i * 0.11, 0.07);
-      rib.rotation.set(Math.PI / 2 - 0.25, 0, 0);
-      g.add(rib);
+    // --- legs -------------------------------------------------------------
+    for (const side of [-1, 1]) {
+      const key = side < 0 ? 'legL' : 'legR';
+      part(key, [side * 0.14, 0.43, 0], (b) => {
+        b.add(cyl(0.095, 0.07, 0.86, 6), materials.flesh, [side * 0.14, 0.43, 0], null, [1, 1, 1]);
+      });
     }
-    // A spine of vertebrae.
-    for (let i = 0; i < 4; i++) {
-      const v = new THREE.Mesh(new THREE.SphereGeometry(0.038, 6, 5), materials.bone);
-      v.position.set(0, 1.34 - i * 0.11, -0.14);
-      g.add(v);
-    }
-
-    // A tattered shroud hanging from the shoulders.
-    const rag = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.24, 0.3, 0.62, 8, 1, true),
-      materials.cloth
-    );
-    rag.position.set(0, 0.94, 0.02);
-    g.add(rag);
   } else if (type === 'archer') {
-    // A skeletal frame: narrow ribcage, long neck, exposed skull.
-    const torso = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.19, 0.24, 0.68, 8),
-      materials.bone
-    );
-    torso.position.y = 1.14;
-    g.add(torso);
-    parts.torso = torso;
+    // --- torso: a bare skeletal frame ------------------------------------
+    part('torso', [0, 1.14, 0], (b) => {
+      b.add(cyl(0.19, 0.24, 0.68, 8), materials.bone, [0, 1.14, 0], null, [1, 1, 1]);
+      for (let i = 0; i < 4; i++) {
+        b.add(
+          tor(0.19 - i * 0.008, 0.022, 4, 10, Math.PI),
+          materials.bone,
+          [0, 1.32 - i * 0.1, 0.02],
+          [Math.PI / 2, 0, 0],
+          [1, 1, 1]
+        );
+      }
+    });
 
-    // Ribs on a bare frame.
-    for (let i = 0; i < 4; i++) {
-      const rib = new THREE.Mesh(
-        new THREE.TorusGeometry(0.19 - i * 0.008, 0.022, 4, 10, Math.PI),
-        materials.bone
-      );
-      rib.position.set(0, 1.32 - i * 0.1, 0.02);
-      rib.rotation.set(Math.PI / 2, 0, 0);
-      g.add(rib);
+    // --- head: a long neck and a bare skull ------------------------------
+    part('head', [0, 1.66, 0.04], (b) => {
+      b.add(cyl(0.05, 0.06, 0.16, 6), materials.bone, [0, 1.52, 0.02], null, [1, 1, 1]);
+      b.add(sph(0.145, 9, 8), materials.bone, [0, 1.66, 0.04], null, [0.8, 1, 1.05]);
+      // Dark eye sockets, which is what makes a skull read as a skull.
+      for (const side of [-1, 1]) {
+        b.add(sph(0.04, 6, 5), materials.fleshDark, [side * 0.055, 1.68, 0.12], null, [1, 0.8, 0.6]);
+      }
+    });
+
+    // --- the long bone bow -----------------------------------------------
+    part('bow', [0.3, 1.3, 0.16], (b) => {
+      b.add(tor(0.34, 0.02, 4, 12, Math.PI * 1.1), materials.bone, [0.3, 1.3, 0.16], [0, Math.PI / 2, 0.4], [1, 1, 1]);
+    });
+
+    // --- arms: one holds the bow, one draws ------------------------------
+    for (const side of [-1, 1]) {
+      const key = side < 0 ? 'armL' : 'armR';
+      part(key, [side * 0.24, 1.18, 0.12], (b) => {
+        b.add(cyl(0.05, 0.04, 0.6, 6), materials.bone, [side * 0.24, 1.18, 0.12], [-0.6, 0, 0], [1, 1, 1]);
+      });
     }
 
-    // A long neck.
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.16, 6), materials.bone);
-    neck.position.set(0, 1.52, 0.02);
-    g.add(neck);
-
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.145, 9, 8), materials.bone);
-    skull.scale.set(0.8, 1, 1.05);
-    skull.position.set(0, 1.66, 0.04);
-    g.add(skull);
-    parts.head = skull;
-
-    // A dark eye socket pair, which is what makes a skull read as a skull.
-    for (const s of [-1, 1]) {
-      const socket = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 5), materials.fleshDark);
-      socket.scale.set(1, 0.8, 0.6);
-      socket.position.set(s * 0.055, 1.68, 0.12);
-      g.add(socket);
+    // --- legs -------------------------------------------------------------
+    for (const side of [-1, 1]) {
+      const key = side < 0 ? 'legL' : 'legR';
+      part(key, [side * 0.11, 0.4, 0], (b) => {
+        b.add(cyl(0.07, 0.05, 0.8, 6), materials.bone, [side * 0.11, 0.4, 0], null, [1, 1, 1]);
+      });
     }
 
-    // A long bone bow.
-    const bow = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.02, 4, 12, Math.PI * 1.1), materials.bone);
-    bow.position.set(0.3, 1.3, 0.16);
-    bow.rotation.set(0, Math.PI / 2, 0.4);
-    g.add(bow);
-    parts.bow = bow;
-
-    for (const s of [-1, 1]) {
-      const arm = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.04, 0.6, 6),
-        materials.bone
-      );
-      arm.position.set(s * 0.24, 1.18, 0.12);
-      arm.rotation.x = -0.6;
-      g.add(arm);
-      parts[s < 0 ? 'armL' : 'armR'] = arm;
-
-      const leg = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.07, 0.05, 0.8, 6),
-        materials.bone
-      );
-      leg.position.set(s * 0.11, 0.4, 0);
-      g.add(leg);
-      parts[s < 0 ? 'legL' : 'legR'] = leg;
-    }
-    // Tattered shroud.
-    const shroud = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.5, 8, 1, true), materials.cloth);
-    shroud.position.y = 0.78;
-    g.add(shroud);
+    // --- a tattered shroud ------------------------------------------------
+    part(null, [0, 0.78, 0], (b) => {
+      b.add(cyl(0.28, 0.34, 0.5, 8), materials.cloth, [0, 0.78, 0], null, [1, 1, 1]);
+    });
   } else {
-    // Knight
-    const torso = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.3, 0.24, 0.76, 8),
-      materials.ironDark
-    );
-    torso.position.y = 1.2;
-    g.add(torso);
-    parts.torso = torso;
+    // --- KNIGHT ------------------------------------------------------------
+    part('torso', [0, 1.2, 0], (b) => {
+      b.add(cyl(0.3, 0.24, 0.76, 8), materials.ironDark, [0, 1.2, 0], null, [1, 1, 1]);
+      b.add(cyl(0.26, 0.32, 0.72, 8), materials.cloth, [0, 0.92, 0], null, [1, 1, 1]);
+    });
 
-    const helm = new THREE.Mesh(new THREE.SphereGeometry(0.19, 10, 8), materials.iron);
-    helm.scale.set(0.9, 1.05, 1);
-    helm.position.set(0, 1.72, 0);
-    g.add(helm);
-    parts.head = helm;
+    // --- head: a horned helm ----------------------------------------------
+    part('head', [0, 1.72, 0], (b) => {
+      b.add(sph(0.19, 10, 8), materials.iron, [0, 1.72, 0], null, [0.9, 1.05, 1]);
+      for (const side of [-1, 1]) {
+        b.add(cyl(0.05, 0.012, 0.26, 6), materials.iron, [side * 0.13, 1.86, 0], [0, 0, side * 0.55], [1, 1, 1]);
+      }
+    });
 
-    // Horned crown.
-    for (const s of [-1, 1]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.26, 6), materials.iron);
-      horn.position.set(s * 0.13, 1.86, 0);
-      horn.rotation.z = s * 0.55;
-      g.add(horn);
+    // --- arms: spiked pauldrons and heavy limbs ---------------------------
+    for (const side of [-1, 1]) {
+      const key = side < 0 ? 'armL' : 'armR';
+      part(key, [side * 0.34, 1.48, 0], (b) => {
+        b.add(sph(0.19, 9, 7), materials.iron, [side * 0.34, 1.48, 0], null, [1.15, 0.78, 1.05]);
+        b.add(cyl(0.055, 0.012, 0.22, 6), materials.ironDark, [side * 0.42, 1.56, 0], [0, 0, side * 0.75], [1, 1, 1]);
+        b.add(cyl(0.09, 0.075, 0.62, 7), materials.ironDark, [side * 0.35, 1.06, 0.04], null, [1, 1, 1]);
+      });
     }
 
-    // Pauldrons, spiked.
-    for (const s of [-1, 1]) {
-      const pad = new THREE.Mesh(new THREE.SphereGeometry(0.19, 9, 7), materials.iron);
-      pad.scale.set(1.15, 0.78, 1.05);
-      pad.position.set(s * 0.34, 1.48, 0);
-      g.add(pad);
-      parts[s < 0 ? 'armL' : 'armR'] = pad;
+    // --- the great sword ---------------------------------------------------
+    part('weapon', [0.46, 0.94, 0.36], (b) => {
+      b.add(box(0.11, 1.25, 0.035), materials.iron, [0.46, 0.94, 0.36], [-0.45, 0, 0.12], [1, 1, 1]);
+      b.add(box(0.34, 0.05, 0.06), materials.ironDark, [0.44, 1.5, 0.14], [-0.45, 0, 0], [1, 1, 1]);
+    });
 
-      // A spike on each pauldron, for a clear silhouette at distance.
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 6), materials.ironDark);
-      spike.position.set(s * 0.42, 1.56, 0);
-      spike.rotation.z = s * 0.75;
-      g.add(spike);
-
-      // A heavy arm below the pauldron.
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.075, 0.62, 7), materials.ironDark);
-      arm.position.set(s * 0.35, 1.06, 0.04);
-      g.add(arm);
-    }
-
-    // A tattered tabard over the plate.
-    const tabard = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.26, 0.32, 0.72, 8, 1, true),
-      materials.cloth
-    );
-    tabard.position.set(0, 0.92, 0);
-    g.add(tabard);
-
-    // A great sword, held low and ready.
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.25, 0.035), materials.iron);
-    blade.position.set(0.46, 0.94, 0.36);
-    blade.rotation.x = -0.45;
-    blade.rotation.z = 0.12;
-    g.add(blade);
-    parts.weapon = blade;
-
-    // Crossguard and pommel.
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.06), materials.ironDark);
-    guard.position.set(0.44, 1.5, 0.14);
-    guard.rotation.x = -0.45;
-    g.add(guard);
-
-    for (const s of [-1, 1]) {
-      const leg = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.12, 0.1, 0.86, 6),
-        materials.ironDark
-      );
-      leg.position.set(s * 0.15, 0.43, 0);
-      g.add(leg);
-      parts[s < 0 ? 'legL' : 'legR'] = leg;
+    // --- legs ---------------------------------------------------------------
+    for (const side of [-1, 1]) {
+      const key = side < 0 ? 'legL' : 'legR';
+      part(key, [side * 0.15, 0.43, 0], (b) => {
+        b.add(cyl(0.12, 0.1, 0.86, 6), materials.ironDark, [side * 0.15, 0.43, 0], null, [1, 1, 1]);
+      });
     }
   }
 
@@ -671,44 +736,57 @@ export class Enemy {
     }
   }
 
+  /**
+   * Animates the body.
+   *
+   * Each part is a group whose rest pose is baked into its geometry and
+   * which sits on its joint, so the rotations below are deltas applied on
+   * top of that rest pose.
+   */
   _animate(dt) {
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     const t = this.animTime;
     const p = this.parts;
+    const gait = t * (3 + speed * 2.2);
 
     this.group.position.copy(this.position);
     this.group.rotation.y = this.yaw;
 
     if (p.legL && p.legR) {
-      const swing = Math.sin(t * (3 + speed * 2.2)) * Math.min(0.7, 0.18 + speed * 0.16);
+      const swing = Math.sin(gait) * Math.min(0.7, 0.18 + speed * 0.16);
       p.legL.rotation.x = swing;
       p.legR.rotation.x = -swing;
     }
+
     if (p.armL && p.armR) {
       if (this.state === 'attack') {
-        // Wind up then swing.
+        // Wind up, then swing through.
         const w = this.stats.windup;
         const k = 1 - Math.max(0, this.stateTimer) / w;
-        const swing = k < 0.5 ? -1.4 * (k * 2) : 1.9 * ((k - 0.5) * 2);
         if (this.type === 'archer') {
-          p.armR.rotation.x = -1.5 + k * 0.3;
-          p.armL.rotation.x = -1.2 - k * 0.5;
+          // The bow arm holds; the draw arm pulls back and releases.
+          p.armR.rotation.x = k * 0.35;
+          p.armL.rotation.x = -k * 0.5;
         } else {
+          const swing = k < 0.5 ? -1.4 * (k * 2) : 1.9 * ((k - 0.5) * 2);
           p.armR.rotation.x = swing;
           p.armL.rotation.x = swing * 0.5;
         }
       } else if (this.type === 'archer') {
-        p.armR.rotation.x = -1.4 + Math.sin(t * 1.4) * 0.1;
-        p.armL.rotation.x = -1.1;
+        // A slow, steady draw.
+        p.armR.rotation.x = Math.sin(t * 1.4) * 0.08;
+        p.armL.rotation.x = Math.sin(t * 1.4 + 0.6) * 0.05;
       } else {
-        const swing = Math.sin(t * (3 + speed * 2.2)) * Math.min(0.5, 0.1 + speed * 0.1);
-        p.armR.rotation.x = -0.6 + swing;
-        p.armL.rotation.x = -0.5 - swing;
+        const swing = Math.sin(gait) * Math.min(0.5, 0.1 + speed * 0.1);
+        p.armR.rotation.x = swing;
+        p.armL.rotation.x = -swing;
       }
     }
+
     if (p.torso) {
-      p.torso.rotation.z = Math.sin(t * (3 + speed * 2.2)) * 0.05;
-      p.torso.position.y = 1.16 + Math.abs(Math.sin(t * (3 + speed * 2.2))) * 0.03;
+      p.torso.rotation.z = Math.sin(gait) * 0.05;
+      p.torso.position.y =
+        (p.torso.userData.baseY ?? 1.16) + Math.abs(Math.sin(gait)) * 0.03;
     }
     if (p.head) {
       p.head.rotation.y = Math.sin(t * 0.6) * 0.25;
@@ -717,7 +795,7 @@ export class Enemy {
       p.weapon.rotation.z = Math.sin(t * 1.1) * 0.08;
     }
     if (p.bow) {
-      p.bow.rotation.z = 0.4 + Math.sin(t * 0.9) * 0.06;
+      p.bow.rotation.z = Math.sin(t * 0.9) * 0.06;
     }
   }
 

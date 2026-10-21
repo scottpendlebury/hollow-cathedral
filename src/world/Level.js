@@ -20,6 +20,23 @@ import { Box } from '../core/Physics.js';
 
 const WALL_T = 0.7;
 
+/**
+ * Flame materials, shared by every torch and brazier in the level.
+ *
+ * A fresh material per flame meant the level could not batch them: each
+ * flame was its own draw call.
+ */
+const KIT_FLAME_MATERIAL = new THREE.MeshBasicMaterial({
+  color: 0xffb055,
+  transparent: true,
+  opacity: 0.92,
+});
+const KIT_SICK_FLAME_MATERIAL = new THREE.MeshBasicMaterial({
+  color: 0x6fbf5a,
+  transparent: true,
+  opacity: 0.92,
+});
+
 export class Level {
   /**
    * @param {THREE.Scene} scene
@@ -46,6 +63,15 @@ export class Level {
     /** Marker positions used for navigation and scripted beats. */
     this.markers = {};
 
+    /**
+     * Flames, drawn as instanced meshes.
+     *
+     * Each flame used to be its own mesh, which meant the level issued a
+     * draw call per torch. One InstancedMesh per colour draws them all.
+     */
+    this.flameMeshes = new Map();
+    this.flameInstances = [];
+
     this._tmpMat = new THREE.Matrix4();
   }
 
@@ -61,8 +87,47 @@ export class Level {
     this._buildApse();
 
     this.batch.build(this.root);
+    this._buildFlameMeshes();
     this.root.updateMatrixWorld(true);
     return this;
+  }
+
+  /**
+   * Records a flame for instanced rendering.
+   * @returns {number} the instance index, used to animate the flame
+   */
+  _addFlame(x, y, z, radius, material) {
+    const list = this.flameInstances;
+    let group = this.flameMeshes.get(material);
+    if (!group) {
+      group = { material, radius, items: [] };
+      this.flameMeshes.set(material, group);
+    }
+    group.items.push({ x, y, z, radius, scale: 1 });
+    list.push(group);
+    return group.items.length - 1;
+  }
+
+  /**
+   * Creates one InstancedMesh per flame colour and writes the instance
+   * transforms. Called once, after the level geometry has been built.
+   */
+  _buildFlameMeshes() {
+    const dummy = new THREE.Object3D();
+    for (const group of this.flameMeshes.values()) {
+      const geometry = new THREE.SphereGeometry(1, 8, 6);
+      const mesh = new THREE.InstancedMesh(geometry, group.material, group.items.length);
+      mesh.frustumCulled = false;
+      group.items.forEach((item, i) => {
+        dummy.position.set(item.x, item.y, item.z);
+        dummy.scale.set(item.radius, item.radius * 1.25, item.radius);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      this.root.add(mesh);
+      group.mesh = mesh;
+    }
   }
 
   /** Adds a floor slab and its collider. */
@@ -643,19 +708,17 @@ export class Level {
   _torch(x, y, z, rotY) {
     const t = Kit.wallTorch(this.materials, x, y, z, rotY);
     this.batch.add(t);
-    // Register the flame separately so it can be animated and lit.
-    const flame = t.userData.flame;
-    flame.position.set(0, 0.56, 0.42);
-    const holder = new THREE.Group();
-    holder.position.set(x, y, z);
-    holder.rotation.y = rotY;
-    const f2 = flame.clone();
-    f2.material = flame.material.clone();
-    holder.add(f2);
-    this.root.add(holder);
+    // The flame is drawn as one instance of a shared instanced mesh, so
+    // every torch in the level costs a single draw call between them.
+    const index = this._addFlame(
+      x + Math.sin(rotY) * 0.42,
+      y + 0.56,
+      z + Math.cos(rotY) * 0.42,
+      0.13,
+      KIT_FLAME_MATERIAL
+    );
     this.lightEmitters.push({
-      object: holder,
-      flame: f2,
+      flameIndex: index,
       position: t.userData.lightAnchor.clone(),
       color: 0xffa04a,
       intensity: 26,
@@ -668,18 +731,15 @@ export class Level {
   _brazier(x, z, color = 0xff9a3c) {
     const b = Kit.brazier(this.materials, x, z);
     this.batch.add(b);
-    const holder = new THREE.Group();
-    holder.position.set(x, 0, z);
-    const flame = new THREE.Mesh(
-      new THREE.SphereGeometry(0.24, 8, 6),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 })
+    const index = this._addFlame(
+      x,
+      1.28,
+      z,
+      0.24,
+      color === 0x6fbf5a ? KIT_SICK_FLAME_MATERIAL : KIT_FLAME_MATERIAL
     );
-    flame.position.y = 1.28;
-    holder.add(flame);
-    this.root.add(holder);
     this.lightEmitters.push({
-      object: holder,
-      flame,
+      flameIndex: index,
       position: new THREE.Vector3(x, 1.3, z),
       color,
       intensity: 34,

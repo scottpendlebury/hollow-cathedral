@@ -10,6 +10,27 @@
 
 import * as THREE from 'three';
 
+/**
+ * Shared materials for the emissive props.
+ *
+ * Every torch, brazier, candle and window used to allocate its own
+ * material. That gave the level dozens of one-mesh draw calls that could
+ * not be batched with anything else. Sharing them lets the whole set of
+ * flames merge into a single mesh.
+ */
+const FLAME_MATERIAL = new THREE.MeshBasicMaterial({
+  color: 0xffb055,
+  transparent: true,
+  opacity: 0.92,
+});
+const CANDLE_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xffc070 });
+const GLASS_MATERIAL = new THREE.MeshBasicMaterial({
+  color: 0x2c4a6b,
+  transparent: true,
+  opacity: 0.85,
+  side: THREE.DoubleSide,
+});
+
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const CYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
 const CYL_LO = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
@@ -233,10 +254,7 @@ export function wallTorch(materials, x, y, z, rotY = 0) {
   cup.rotation.x = Math.PI;
   g.add(cup);
 
-  const flame = new THREE.Mesh(
-    new THREE.SphereGeometry(0.13, 8, 6),
-    new THREE.MeshBasicMaterial({ color: 0xffb055, transparent: true, opacity: 0.92 })
-  );
+  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), FLAME_MATERIAL);
   flame.position.set(0, 0.56, 0.42);
   flame.name = 'flame';
   g.add(flame);
@@ -264,10 +282,7 @@ export function brazier(materials, x, z, y = 0) {
   const rim = cylinder(materials.ironDark, 0, 1.11, 0, 0.44, 0.07, 12);
   g.add(rim);
 
-  const flame = new THREE.Mesh(
-    new THREE.SphereGeometry(0.26, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xff9a3c, transparent: true, opacity: 0.9 })
-  );
+  const flame = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), FLAME_MATERIAL);
   flame.position.y = 1.28;
   flame.name = 'flame';
   g.add(flame);
@@ -313,10 +328,7 @@ export function chandelier(materials, x, y, z, radius = 0.9) {
     const cx = Math.cos(a) * radius;
     const cz = Math.sin(a) * radius;
     g.add(cylinder(materials.bone, cx, 0.14, cz, 0.05, 0.3, 6));
-    const fl = new THREE.Mesh(
-      new THREE.SphereGeometry(0.05, 6, 5),
-      new THREE.MeshBasicMaterial({ color: 0xffc070 })
-    );
+    const fl = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), CANDLE_MATERIAL);
     fl.position.set(cx, 0.32, cz);
     g.add(fl);
   }
@@ -378,15 +390,7 @@ export function stainedWindow(materials, x, y, z, width, height, rotY = 0) {
   g.position.set(x, y, z);
   g.rotation.y = rotY;
 
-  const glass = new THREE.Mesh(
-    new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({
-      color: 0x2c4a6b,
-      transparent: true,
-      opacity: 0.85,
-      side: THREE.DoubleSide,
-    })
-  );
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(width, height), GLASS_MATERIAL);
   g.add(glass);
 
   // Mullions.
